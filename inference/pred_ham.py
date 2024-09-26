@@ -120,13 +120,16 @@ def predict(input_dir: str, output_dir: str, disable_cuda: bool, device: str,
                 batch, subgraph = collate_fn([data])
                 sub_atom_idx, sub_edge_idx, sub_edge_ang, sub_index = subgraph
 
-            output = kernel.model(batch.x.to(kernel.device), batch.edge_index.to(kernel.device),
+            output, out_fermi = kernel.model(batch.x.to(kernel.device), batch.edge_index.to(kernel.device),
                                   batch.edge_attr.to(kernel.device),
                                   batch.batch.to(kernel.device),
                                   sub_atom_idx.to(kernel.device), sub_edge_idx.to(kernel.device),
                                   sub_edge_ang.to(kernel.device), sub_index.to(kernel.device),
                                   huge_structure=huge_structure)
             output = output.detach().cpu()
+            out_fermi = out_fermi.detach().cpu().item()
+            print(f"Fermi energy", out_fermi)
+
             if restore_blocks_py:
                 for index in range(batch.edge_attr.shape[0]):
                     R = torch.round(batch.edge_attr[index, 4:7] @ inv_lattice - batch.edge_attr[index, 7:10] @ inv_lattice).int().tolist()
@@ -173,6 +176,12 @@ def predict(input_dir: str, output_dir: str, disable_cuda: bool, device: str,
             json.dump({
                 "isspinful": predict_spinful
             }, info_f)
+        ### Updating the JSON file
+        with open(os.path.join(output_dir, "band.json"), 'r') as info_f:
+            data = json.load(info_f)
+            data["fermi_level"] = out_fermi
+        with open(os.path.join(output_dir, "band.json"), 'w') as info_f:
+            json.dump(data, info_f, indent=4)
 
 
 def predict_with_grad(input_dir: str, output_dir: str, disable_cuda: bool, device: str,
