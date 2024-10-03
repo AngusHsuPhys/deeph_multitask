@@ -117,9 +117,10 @@ def predict(input_dir: str, output_dir: str, disable_cuda: bool, device: str,
                     torch.save(data, os.path.join(input_dir, 'graph.pkl'))
                     print(
                         f"Save processed graph to {os.path.join(input_dir, 'graph.pkl')}, cost {time.time() - begin} seconds")
+                print(data)
+
                 batch, subgraph = collate_fn([data])
                 sub_atom_idx, sub_edge_idx, sub_edge_ang, sub_index = subgraph
-
             output, out_fermi = kernel.model(batch.x.to(kernel.device), batch.edge_index.to(kernel.device),
                                   batch.edge_attr.to(kernel.device),
                                   batch.batch.to(kernel.device),
@@ -356,7 +357,7 @@ def predict_with_grad(input_dir: str, output_dir: str, disable_cuda: bool, devic
         rotation_matrix = fid_rc[key_str].T
         hamiltonian = rotate_kernel.rotate_openmx_H(rotated_hamiltonian, rotation_matrix, orbital_types[atom_i], orbital_types[atom_j])
         hamiltonians_pred[key_str] = hamiltonian.detach().cpu()
-        assert kernel.spinful is False  # 检查soc时是否正确
+        assert kernel.spinful is False  
         assert len(hamiltonian.shape) == 2
         dim_1, dim_2 = hamiltonian.shape[:]
         assert key_str not in hamiltonians_grad_pred

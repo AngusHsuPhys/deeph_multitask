@@ -143,6 +143,7 @@ function main()
     end
     site_norbits = (x->sum(x .* 2 .+ 1)).(orbital_types) * (1 + spinful)
     norbits = sum(site_norbits)
+    println("number of orbits ", norbits)
     site_norbits_cumsum = cumsum(site_norbits)
 
     rlat = readdlm(joinpath(parsed_args["input_dir"], "rlat.dat"))
@@ -275,15 +276,29 @@ function main()
                             egval = egval_sub
                         end
                     else
-                        lm, ps = construct_linear_map(Hermitian(H_k) - (fermi_level) * Hermitian(S_k), Hermitian(S_k))
-                        println("Time for No.$idx_k matrix factorization: ", time() - begin_time, "s")
-                        egval_inv, egvec = eigs(lm, nev=num_band, which=:LM, ritzvec=false, maxiter=max_iter)
-                        set_phase!(ps, Pardiso.RELEASE_ALL)
-                        pardiso(ps)
-                        egval = real(1 ./ egval_inv) .+ (fermi_level)
-                        # egval = real(eigs(H_k, S_k, nev=num_band, sigma=(fermi_level + lowest_band), which=:LR, ritzvec=false, maxiter=max_iter)[1])
+                        #------------------ Band calculation ----------------------
+                        # lm, ps = construct_linear_map(Hermitian(H_k) - (fermi_level) * Hermitian(S_k), Hermitian(S_k))
+                        # println("Time for No.$idx_k matrix factorization: ", time() - begin_time, "s")
+                        # egval_inv, egvec = eigs(lm, nev=num_band, which=:LM, ritzvec=false, maxiter=max_iter)
+                        # set_phase!(ps, Pardiso.RELEASE_ALL)
+                        # pardiso(ps)
+                        # egval = real(1 ./ egval_inv) .+ (fermi_level)
+                        ## egval = real(eigs(H_k, S_k, nev=num_band, sigma=(fermi_level + lowest_band), which=:LR, ritzvec=false, maxiter=max_iter)[1])
+                        #------------------ Fermi level locate --------------------
+                        # lm, ps = construct_linear_map(Hermitian(H_k) , Hermitian(S_k))
+                        # println("Time for No.$idx_k matrix factorization: ", time() - begin_time, "s")
+                        # egval_inv, egvec = eigs(lm, nev=num_band, which=:LM, ritzvec=false, maxiter=max_iter)
+                        # set_phase!(ps, Pardiso.RELEASE_ALL) 
+                        # pardiso(ps)
+                        # egval = real(1 ./ egval_inv) 
+                        # egval = real(eigs(H_k, S_k, nev=num_band, which=:LM, ritzvec=false, maxiter=max_iter)[1])
+                        egval = real(eigs(H_k, S_k, nev=num_band, sigma=(fermi_level), which=:LM, ritzvec=false, maxiter=max_iter)[1])
+                        # println("The calculated Fermi level is: ", egval)
                     end
                     egvals[:, idx_k] = egval
+                    # egvals_inv[:, idx_k] = egval_inv
+                    println("The inverse Fermi level is: ", egval)
+
                     if which_k == 0
                         # println(egval .- fermi_level)
                     else
@@ -293,8 +308,14 @@ function main()
                         open(joinpath(parsed_args["output_dir"], "egval.dat"), "w") do f
                             writedlm(f, egval)
                         end
+                        # open(joinpath(parsed_args["output_dir"], "egval_inv.dat"), "w") do f
+                        #     writedlm(f, egval_inv)
+                        # end
                     end
                     egvals[:, idx_k] = egval
+                    # egvals_inv[:, idx_k] = egval_inv
+
+                    # println("The calculated Fermi level is:", minimum(egval))
                     println("Time for solving No.$idx_k eigenvalues at k = ", [kx, ky, kz], ": ", time() - begin_time, "s")
                 end
                 idx_k += 1
