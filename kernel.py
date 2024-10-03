@@ -685,6 +685,8 @@ class DeepHKernel:
             else:
                 test_targets = []
                 test_preds = []
+                fermi_preds = []
+                fermi_targets = []
                 test_ids = []
                 test_atom_ids = []
                 test_atomic_numbers = []
@@ -846,6 +848,11 @@ class DeepHKernel:
                     edge_slices = torch.tensor(batch.x)[edge_stru_index].view(-1, 1)
                     test_preds += torch.squeeze(out_hamil.detach().cpu()).tolist()
                     test_targets += torch.squeeze(labels_hamil.detach().cpu()).tolist()
+                    # fermi_preds += torch.squeeze(out_fermi.detach().cpu()).tolist()
+                    fermi_preds.append(torch.squeeze(out_fermi.detach().cpu()).tolist())
+                    # fermi_targets += torch.squeeze(labels_fermi.detach().cpu()).tolist()
+                    fermi_targets.append(torch.squeeze(labels_fermi.detach().cpu()).tolist())
+
                     test_ids += np.array(batch.stru_id)[edge_stru_index].tolist()
                     test_atom_ids += torch.squeeze(batch.edge_index.T - edge_slices).tolist()
                     test_atomic_numbers += torch.squeeze(self.index_to_Z[batch.x[batch.edge_index.T]]).tolist()
@@ -889,13 +896,13 @@ class DeepHKernel:
                 else:
                     writer.writerow(['stru_id', 'atom_id', 'atomic_number', 'dist', 'atom1_x', 'atom1_y', 'atom1_z',
                                      'atom2_x', 'atom2_y', 'atom2_z']
-                                    + ['target'] * self.out_fea_len + ['pred'] * self.out_fea_len)
-                    for stru_id, atom_id, atomic_number, edge_info, target, pred in zip(test_ids, test_atom_ids,
+                                    + ['target'] * self.out_fea_len + ['pred'] * self.out_fea_len + ['fermi_target', 'fermi_pred'])
+                    for stru_id, atom_id, atomic_number, edge_info, target, pred, fermi_target, fermi_pred in zip(test_ids, test_atom_ids,
                                                                                         test_atomic_numbers,
                                                                                         test_edge_infos, test_targets,
-                                                                                        test_preds):
+                                                                                        test_preds, fermi_targets, fermi_preds):
                         if self.out_fea_len == 1:
-                            writer.writerow((stru_id, atom_id, atomic_number, *edge_info, target, pred))
+                            writer.writerow((stru_id, atom_id, atomic_number, *edge_info, target, pred, fermi_target, fermi_pred))
                         else:
-                            writer.writerow((stru_id, atom_id, atomic_number, *edge_info, *target, *pred))
+                            writer.writerow((stru_id, atom_id, atomic_number, *edge_info, *target, *pred, fermi_target, fermi_pred))
         return losses
