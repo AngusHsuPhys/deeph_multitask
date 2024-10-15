@@ -272,6 +272,7 @@ class DeepHKernel:
 
                 model_dict.update(transfer_dict)
                 self.model.load_state_dict(model_dict)
+                # self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
                 print(f'=> loaded pretrained model at "{pretrained}" (epoch {checkpoint["epoch"]})')
             else:
                 print(f'=> no checkpoint found at "{pretrained}"')
@@ -281,7 +282,15 @@ class DeepHKernel:
         if resume:
             if os.path.isfile(resume):
                 checkpoint = torch.load(resume, map_location=self.device)
-                self.model.load_state_dict(checkpoint['state_dict'])
+                resume_dict = checkpoint['state_dict']
+                model_dict = self.model.state_dict()
+                transfer_dict = {}
+                for k, v in resume_dict.items():
+                    if v.shape == model_dict[k].shape:
+                        transfer_dict[k] = v
+                        print('Use pretrained parameters:', k)
+                model_dict.update(transfer_dict)
+                self.model.load_state_dict(model_dict)
                 self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
                 print(f'=> loaded model at "{resume}" (epoch {checkpoint["epoch"]})')
             else:
@@ -654,13 +663,13 @@ class DeepHKernel:
                 tmp = 'TEST'
             else:
                 tmp = 'VAL'
-            test_losses = self.kernel_fn(test_loader, tmp, test_csv_name, output_E=True)
+            test_losses = self.kernel_fn(test_loader, tmp, test_csv_name, output_E=False)
             print(f'Test loss: {test_losses.avg:.8f}.')
             if self.if_tensorboard:
                 self.tb_writer.add_scalars('loss', {'Test loss': test_losses.avg}, global_step=epoch)
-            test_losses = self.kernel_fn(train_loader, tmp, train_csv_name, output_E=True)
+            test_losses = self.kernel_fn(train_loader, tmp, train_csv_name, output_E=False)
             print(f'Train loss: {test_losses.avg:.8f}.')
-            test_losses = self.kernel_fn(val_loader, tmp, val_csv_name, output_E=True)
+            test_losses = self.kernel_fn(val_loader, tmp, val_csv_name, output_E=False)
             print(f'Val loss: {test_losses.avg:.8f}.')
 
     def predict(self, hamiltonian_dirs):
