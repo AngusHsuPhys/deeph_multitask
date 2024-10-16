@@ -854,14 +854,20 @@ class DeepHKernel:
                 else:
                     # print(batch.x)
                     edge_stru_index = torch.squeeze(batch.batch[batch.edge_index[0]]).numpy()
+                    print("Length of edge_stru_index:", len(edge_stru_index))
                     edge_slices = torch.tensor(batch.x)[edge_stru_index].view(-1, 1)
                     test_preds += torch.squeeze(out_hamil.detach().cpu()).tolist()
                     test_targets += torch.squeeze(labels_hamil.detach().cpu()).tolist()
-                    # fermi_preds += torch.squeeze(out_fermi.detach().cpu()).tolist()
-                    fermi_preds.append(torch.squeeze(out_fermi.detach().cpu()).tolist())
-                    # fermi_targets += torch.squeeze(labels_fermi.detach().cpu()).tolist()
-                    fermi_targets.append(torch.squeeze(labels_fermi.detach().cpu()).tolist())
-
+                    fermi_out = torch.squeeze(out_fermi.detach().cpu())
+                    fermi_out = fermi_out.item()
+                    fermi_labels=torch.squeeze(labels_fermi.detach().cpu())
+                    fermi_labels = fermi_labels.item()
+                    if isinstance(fermi_out, float):  # Check if the result is a scalar
+                        fermi_preds += [fermi_out] * len(edge_stru_index)  # Wrap it in a list
+                        fermi_targets += [fermi_labels] * len(edge_stru_index)
+                    else:
+                        fermi_preds += fermi_out.tolist() * len(edge_stru_index)  # Proceed as normal if it's already a list
+                        fermi_targets += fermi_labels.tolist() * len(edge_stru_index)
                     test_ids += np.array(batch.stru_id)[edge_stru_index].tolist()
                     test_atom_ids += torch.squeeze(batch.edge_index.T - edge_slices).tolist()
                     test_atomic_numbers += torch.squeeze(self.index_to_Z[batch.x[batch.edge_index.T]]).tolist()
