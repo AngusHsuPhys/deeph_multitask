@@ -16,12 +16,12 @@ function parse_commandline()
         "--output_dir", "-o"
             help = ""
             arg_type = String
-            default = "./out"
+            default = "./output"
         "--if_DM", "-d"
             help = ""
             arg_type = Bool
             default = false
-        "--save_overlap", "-s"
+       "--save_overlap", "-s"
             help = ""
             arg_type = Bool
             default = true
@@ -36,6 +36,89 @@ parsed_args = parse_commandline()
 
 # @info string("get data from: ", parsed_args["input_dir"])
 periodic_table = JSON.parsefile(joinpath(@__DIR__, "periodic_table.json"))
+
+#=
+struct Site_list
+    R::Array{StaticArrays.SArray{Tuple{3},Int16,1,3},1}
+    site::Array{Int64,1}
+    pos::Array{Float64,2}
+end
+
+function _cal_neighbour_site(e_ij::Array{Float64,2},Rcut::Float64)
+    r_ij = sum(dims=1,e_ij.^2)[1,:]
+    p = sortperm(r_ij)
+    j_cut = searchsorted(r_ij[p],Rcut^2).stop
+    return p[1:j_cut]
+end
+
+function cal_neighbour_site(site_positions::Matrix{<:Real}, lat::Matrix{<:Real}, R_list::Union{Vector{SVector{3, Int64}}, Vector{Vector{Int64}}}, nsites::Int64, Rcut::Float64)
+    # writed by lihe
+    neighbour_site = Array{Site_list,1}([])
+    # R_list = collect(keys(tm.hoppings))
+    pos_R_list = map(R -> collect(lat * R), R_list)
+    pos_j_list = cat(dims=2, map(pos_R -> pos_R .+ site_positions, pos_R_list)...)
+    for site_i in 1:nsites
+        pos_i = site_positions[:, site_i]
+        e_ij = pos_j_list .- pos_i
+        p = _cal_neighbour_site(e_ij, Rcut)
+        R_ordered = R_list[map(x -> div(x + (nsites - 1), nsites),p)]
+        site_ordered = map(x -> mod(x - 1, nsites) + 1,p)
+        pos_ordered = e_ij[:,p]
+        @assert pos_ordered[:,1] ≈ [0,0,0]
+        push!(neighbour_site, Site_list(R_ordered, site_ordered, pos_ordered))
+    end
+    return neighbour_site
+end
+
+function _get_local_coordinate(e_ij::Array{Float64,1},site_list_i::Site_list)
+    if e_ij != [0,0,0]
+        r1 = e_ij
+    else
+        r1 = site_list_i.pos[:,2]
+    end
+    nsites_i = length(site_list_i.R)
+    r2 = [0,0,0]
+    for j in 1:nsites_i
+        r2 = site_list_i.pos[:,j]
+        if norm(cross(r1,r2)) != 0
+            break
+        end
+        if j == nsites_i
+            for k in 1:3
+                r2 = [[1,0,0],[0,1,0],[0,0,1]][k]
+                if norm(cross(r1,r2)) != 0
+                    break
+                end
+            end
+        end
+    end
+    if r2 == [0,0,0]
+        error("there is no linear independent chemical bond in the Rcut range, this may be caused by a too small  Rcut or the structure  is1D")
+    end
+    local_coordinate = zeros(Float64,(3,3))
+    local_coordinate[:,1] = r1/norm(r1)
+
+    local_coordinate[:,2] = cross(r1,r2)/norm(cross(r1,r2))
+    local_coordinate[:,3] = cross(local_coordinate[:,1],local_coordinate[:,2])
+    return local_coordinate
+end
+
+function get_local_coordinates(site_positions::Matrix{<:Real}, lat::Matrix{<:Real}, R_list::Vector{SVector{3, Int64}}, Rcut::Float64)::Dict{Array{Int64,1},Array{Float64,2}}
+    nsites = size(site_positions, 2)
+    neighbour_site = cal_neighbour_site(site_positions, lat, R_list, nsites, Rcut)
+    local_coordinates = Dict{Array{Int64,1},Array{Float64,2}}()
+    for site_i = 1:nsites
+        site_list_i = neighbour_site[site_i]
+        nsites_i = length(site_list_i.R)
+        for j = 1:nsites_i
+            R = site_list_i.R[j]; site_j = site_list_i.site[j]; e_ij = site_list_i.pos[:,j]
+            local_coordinate = _get_local_coordinate(e_ij, site_list_i)
+            local_coordinates[cat(dims=1, R, site_i, site_j)] = local_coordinate
+        end
+    end
+    return local_coordinates
+end
+=#
 
 # The function parse_openmx below is come from "https://github.com/HopTB/HopTB.jl"
 function parse_openmx(filepath::String; return_DM::Bool = false)
@@ -190,13 +273,13 @@ function parse_openmx(filepath::String; return_DM::Bool = false)
     fermi_level = parse(Float64, str[length(str)])/ev2Hartree
 
     # @info "get Chemical potential (Hartree)"
-    # find_target_line("Eigenvalues (Hartree)")
-    # for i = 1:2;@assert readline(f) == "***********************************************************";end
-    # readline(f)
-    # str = split(readline(f))
-    # ev2Hartree = 0.036749324533634074
-    # fermi_level = parse(Float64, str[length(str)])/ev2Hartree
-
+    find_target_line("Eigenvalues (Hartree)")
+    for i = 1:2;@assert readline(f) == "***********************************************************";end
+    readline(f)
+    str = split(readline(f))
+    ev2Hartree = 0.036749324533634074
+    fermi_level = parse(Float64, str[length(str)])/ev2Hartree
+    
 
 #     @info "get Fractional coordinates & orbital types:"
     find_target_line("Fractional coordinates of the final structure")
@@ -232,24 +315,24 @@ function parse_openmx(filepath::String; return_DM::Bool = false)
     atv_ijk = Matrix{Int64}(atv_ijk)
 
     if return_DM
-        return element, atomnum, SpinP_switch, atv, atv_ijk, Total_NumOrbs, FNAN, natn, ncn, tv, Hk, iHk, OLP, OLP_r, orbital_types, fermi_level, atom_pos, DM, iDM
+        return element, atomnum, SpinP_switch, atv, atv_ijk, Total_NumOrbs, FNAN, natn, ncn, tv, Hk, iHk, OLP, OLP_r, orbital_types, fermi_level, atom_pos, DM
     else
-        return element, atomnum, SpinP_switch, atv, atv_ijk, Total_NumOrbs, FNAN, natn, ncn, tv, Hk, iHk, OLP, OLP_r, orbital_types, fermi_level, atom_pos, nothing, nothing
+        return element, atomnum, SpinP_switch, atv, atv_ijk, Total_NumOrbs, FNAN, natn, ncn, tv, Hk, iHk, OLP, OLP_r, orbital_types, fermi_level, atom_pos, nothing
     end
 end
 
 function get_data(filepath_scfout::String, Rcut::Float64; if_DM::Bool = false)
-    element, nsites, SpinP_switch, atv, atv_ijk, Total_NumOrbs, FNAN, natn, ncn, lat, Hk, iHk, OLP, OLP_r, orbital_types, fermi_level, site_positions, DM, iDM = parse_openmx(filepath_scfout; return_DM=if_DM)
+    element, nsites, SpinP_switch, atv, atv_ijk, Total_NumOrbs, FNAN, natn, ncn, lat, Hk, iHk, OLP, OLP_r, orbital_types, fermi_level, site_positions, DM = parse_openmx(filepath_scfout; return_DM=if_DM)
 
     for t in [Hk, iHk]
         if t != nothing
             ((x)->((y)->((z)->z .*= 27.2113845).(y)).(x)).(t) # Hartree to eV
         end
     end
-    ((x)->((y)->((z)->z .*= 0.529177249).(y)).(x)).(OLP_r) # Bohr to Ang
     site_positions .*= 0.529177249 # Bohr to Ang
     lat .*= 0.529177249 # Bohr to Ang
 
+    # get R_list
     R_list = Set{Vector{Int64}}()
     for atom_i in 1:nsites, index_nn_i in 1:FNAN[atom_i]
         atom_j = natn[atom_i][index_nn_i]
@@ -258,11 +341,17 @@ function get_data(filepath_scfout::String, Rcut::Float64; if_DM::Bool = false)
     end
     R_list = collect(R_list)
 
+    # get neighbour_site
     nsites = size(site_positions, 2)
+    # neighbour_site = cal_neighbour_site(site_positions, lat, R_list, nsites, Rcut)
+    # local_coordinates = Dict{Array{Int64, 1}, Array{Float64, 2}}()
 
+    # process hamiltonian
     norbits = sum(Total_NumOrbs)
     overlaps = Dict{Array{Int64, 1}, Array{Float64, 2}}()
-    positions = Dict{Array{Int64, 1}, Array{Float64, 3}}()
+    positions = Dict{Array{Int64, 1}, Array{Float64, 2}}()
+
+
     if SpinP_switch == 0
         spinful = false
         hamiltonians = Dict{Array{Int64, 1}, Array{Float64, 2}}()
@@ -274,11 +363,8 @@ function get_data(filepath_scfout::String, Rcut::Float64; if_DM::Bool = false)
     elseif SpinP_switch == 1
         error("Collinear spin is not supported currently")
     elseif SpinP_switch == 3
-        if if_DM
-            density_matrixs = Dict{Array{Int64, 1}, Array{Complex{Float64}, 2}}()
-        else
-            density_matrixs = nothing
-        end
+        @assert if_DM == false
+        density_matrixs = nothing
         spinful = true
         for i in 1:length(Hk[4]),j in 1:length(Hk[4][i])
             Hk[4][i][j] += iHk[3][i][j]
@@ -288,20 +374,24 @@ function get_data(filepath_scfout::String, Rcut::Float64; if_DM::Bool = false)
     else
         error("SpinP_switch is $SpinP_switch, rather than valid values 0, 1 or 3")
     end
-
+    
     for site_i in 1:nsites, index_nn_i in 1:FNAN[site_i]
         site_j = natn[site_i][index_nn_i]
         R = atv_ijk[:, ncn[site_i][index_nn_i]]
         e_ij = lat * R + site_positions[:, site_j] - site_positions[:, site_i]
+
         key = cat(dims=1, R, site_i, site_j)
 
         overlap = permutedims(OLP[site_i][index_nn_i])
         overlaps[key] = overlap
-        position = zeros(Float64, 3, size(overlap, 1), size(overlap, 2))
+
+        position = zeros(Float64, size(overlap, 1), size(overlap, 2))
         for alpha = 1:3
-            position[alpha, :, :] = permutedims(OLP_r[alpha][site_i][index_nn_i])
+	    aux_key = cat(dims=1, key, alpha)
+	    positions[aux_key] = permutedims(OLP_r[alpha][site_i][index_nn_i])
+            # position[alpha, :, :] = permutedims(OLP_r[alpha][site_i][index_nn_i])
         end
-        positions[key] = position
+        # positions[key] = position
         if SpinP_switch == 0
             hamiltonian = permutedims(Hk[1][site_i][index_nn_i])
             hamiltonians[key] = hamiltonian
@@ -316,7 +406,7 @@ function get_data(filepath_scfout::String, Rcut::Float64; if_DM::Bool = false)
 
             len_i_wo_spin = Total_NumOrbs[site_i]
             len_j_wo_spin = Total_NumOrbs[site_j]
-
+    
             if !(key in keys(hamiltonians))
                 @assert !(key_inv in keys(hamiltonians))
                 hamiltonians[key] = zeros(Complex{Float64}, len_i_wo_spin * 2, len_j_wo_spin * 2)
@@ -327,26 +417,6 @@ function get_data(filepath_scfout::String, Rcut::Float64; if_DM::Bool = false)
                 hamiltonians[key][spini * len_i_wo_spin + 1 : (spini + 1) * len_i_wo_spin, spinj * len_j_wo_spin + 1 : (spinj + 1) * len_j_wo_spin] = permutedims(Hk_real) + im * permutedims(Hk_imag)
                 if spini == 0 && spinj == 1
                     hamiltonians[key_inv][1 * len_j_wo_spin + 1 : (1 + 1) * len_j_wo_spin, 0 * len_i_wo_spin + 1 : (0 + 1) * len_i_wo_spin] = (permutedims(Hk_real) + im * permutedims(Hk_imag))'
-                end
-            end
-            if if_DM
-                if !(key in keys(density_matrixs))
-                    @assert !(key_inv in keys(density_matrixs))
-                    density_matrixs[key] = zeros(Complex{Float64}, len_i_wo_spin * 2, len_j_wo_spin * 2)
-                    density_matrixs[key_inv] = zeros(Complex{Float64}, len_j_wo_spin * 2, len_i_wo_spin * 2)
-                end
-                for spini in 0:1,spinj in spini:1
-                    if spini == 0 && spinj == 0
-                        DM_real, DM_imag = DM[1][site_i][index_nn_i], iDM[1][site_i][index_nn_i]
-                    elseif spini == 0 && spinj == 1
-                        DM_real, DM_imag = DM[3][site_i][index_nn_i], DM[4][site_i][index_nn_i]
-                    elseif spini == 1 && spinj == 1
-                        DM_real, DM_imag = DM[2][site_i][index_nn_i], iDM[2][site_i][index_nn_i]
-                    end
-                    density_matrixs[key][spini * len_i_wo_spin + 1 : (spini + 1) * len_i_wo_spin, spinj * len_j_wo_spin + 1 : (spinj + 1) * len_j_wo_spin] = permutedims(DM_real) + im * permutedims(DM_imag)
-                    if spini == 0 && spinj == 1
-                        density_matrixs[key_inv][1 * len_j_wo_spin + 1 : (1 + 1) * len_j_wo_spin, 0 * len_i_wo_spin + 1 : (0 + 1) * len_i_wo_spin] = (permutedims(DM_real) + im * permutedims(DM_imag))'
-                    end
                 end
             end
         else
@@ -377,13 +447,15 @@ if parsed_args["save_overlap"]
         end
     end
 end
+
 if parsed_args["save_position"]
     h5open("positions.h5", "w") do fid
         for (key, position) in positions
-            write(fid, string(key), permutedims(position, (3, 2, 1)))
+            write(fid, string(key), permutedims(position))
         end
     end
 end
+
 h5open("hamiltonians.h5", "w") do fid
     for (key, hamiltonian) in hamiltonians
         write(fid, string(key), permutedims(hamiltonian))
@@ -399,6 +471,9 @@ open("info.json", "w") do f
 end
 open("site_positions.dat", "w") do f
     writedlm(f, site_positions)
+end
+open("R_list.dat", "w") do f
+    writedlm(f, R_list)
 end
 open("lat.dat", "w") do f
     writedlm(f, lat)
